@@ -1,0 +1,233 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Developer account profile for SerpForge lifetime API access.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Developer display name",
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "description": "Verified developer email address",
+          "maxLength": 200
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Profile avatar URL",
+          "maxLength": 500
+        },
+        "plan": {
+          "type": "string",
+          "description": "Subscription tier",
+          "enum": ["lifetime-free"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["uid", "displayName", "email", "photoURL", "plan", "createdAt", "updatedAt"]
+    },
+    "ApiKey": {
+      "title": "ApiKey",
+      "description": "Lifetime free Serper-compatible API key issued to a developer.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique key identifier",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-friendly project label for the key",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "keyPrefix": {
+          "type": "string",
+          "description": "Visible prefix of the key",
+          "maxLength": 24
+        },
+        "keyMasked": {
+          "type": "string",
+          "description": "Masked representation for safe table display",
+          "maxLength": 48
+        },
+        "keyValue": {
+          "type": "string",
+          "description": "Full signed API key string",
+          "minLength": 16,
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "description": "Key lifecycle state",
+          "enum": ["active", "revoked"]
+        },
+        "requestCount": {
+          "type": "number",
+          "description": "Total API requests recorded for this key"
+        },
+        "lastUsedAt": {
+          "type": "string",
+          "description": "ISO timestamp of most recent API call",
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "name",
+        "keyPrefix",
+        "keyMasked",
+        "keyValue",
+        "status",
+        "requestCount",
+        "lastUsedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RequestLog": {
+      "title": "RequestLog",
+      "description": "Audit log of a search request executed via the SerpForge API.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Log entry document ID",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "keyId": {
+          "type": "string",
+          "description": "Associated ApiKey ID",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "keyName": {
+          "type": "string",
+          "description": "Associated ApiKey label",
+          "maxLength": 80
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Search endpoint invoked",
+          "enum": ["search", "news", "images", "places", "scholar"]
+        },
+        "query": {
+          "type": "string",
+          "description": "Search query string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "gl": {
+          "type": "string",
+          "description": "Country code",
+          "maxLength": 10
+        },
+        "hl": {
+          "type": "string",
+          "description": "Language code",
+          "maxLength": 10
+        },
+        "num": {
+          "type": "number",
+          "description": "Requested result count"
+        },
+        "statusCode": {
+          "type": "number",
+          "description": "HTTP response status code"
+        },
+        "latencyMs": {
+          "type": "number",
+          "description": "Server processing duration in milliseconds"
+        },
+        "resultCount": {
+          "type": "number",
+          "description": "Number of results returned"
+        },
+        "source": {
+          "type": "string",
+          "description": "Request origin",
+          "enum": ["playground", "external"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "keyId",
+        "keyName",
+        "endpoint",
+        "query",
+        "gl",
+        "hl",
+        "num",
+        "statusCode",
+        "latencyMs",
+        "resultCount",
+        "source",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Developer profile records keyed by Firebase Auth UID."
+    },
+    "/apiKeys/{keyId}": {
+      "schema": { "$ref": "#/entities/ApiKey" },
+      "description": "Developer API keys owned by authenticated users."
+    },
+    "/requestLogs/{logId}": {
+      "schema": { "$ref": "#/entities/RequestLog" },
+      "description": "Search request telemetry logs linked to developer API keys."
+    }
+  }
+}

@@ -1,0 +1,173 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Entity Validation Blueprints
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'plan', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'plan', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.photoURL is string && data.photoURL.size() <= 500
+        && data.plan == 'lifetime-free'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidApiKey(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'name', 'keyPrefix', 'keyMasked',
+          'keyValue', 'status', 'requestCount', 'lastUsedAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'name', 'keyPrefix', 'keyMasked',
+          'keyValue', 'status', 'requestCount', 'lastUsedAt', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id) && data.id.size() <= 64
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.keyPrefix is string && data.keyPrefix.size() >= 4 && data.keyPrefix.size() <= 24
+        && data.keyMasked is string && data.keyMasked.size() >= 8 && data.keyMasked.size() <= 48
+        && data.keyValue is string && data.keyValue.size() >= 16 && data.keyValue.size() <= 120
+        && data.status in ['active', 'revoked']
+        && data.requestCount is int && data.requestCount >= 0 && data.requestCount <= 100000000
+        && data.lastUsedAt is string && data.lastUsedAt.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRequestLog(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'keyId', 'keyName', 'endpoint', 'query',
+          'gl', 'hl', 'num', 'statusCode', 'latencyMs', 'resultCount', 'source', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'keyId', 'keyName', 'endpoint', 'query',
+          'gl', 'hl', 'num', 'statusCode', 'latencyMs', 'resultCount', 'source', 'createdAt'
+        ])
+        && isValidId(data.id) && data.id.size() <= 64
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && isValidId(data.keyId) && data.keyId.size() <= 64
+        && data.keyName is string && data.keyName.size() >= 1 && data.keyName.size() <= 80
+        && data.endpoint in ['search', 'news', 'images', 'places', 'scholar']
+        && data.query is string && data.query.size() >= 1 && data.query.size() <= 300
+        && data.gl is string && data.gl.size() >= 2 && data.gl.size() <= 10
+        && data.hl is string && data.hl.size() >= 2 && data.hl.size() <= 10
+        && data.num is int && data.num >= 1 && data.num <= 50
+        && data.statusCode is int && data.statusCode >= 100 && data.statusCode <= 599
+        && data.latencyMs is int && data.latencyMs >= 0 && data.latencyMs <= 120000
+        && data.resultCount is int && data.resultCount >= 0 && data.resultCount <= 100
+        && data.source in ['playground', 'external']
+        && data.createdAt is timestamp;
+    }
+
+    // /users/{userId} - Strictly owner-isolated PII
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow create: if isVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().plan == existing().plan
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // /apiKeys/{keyId} - Developer API Keys
+    match /apiKeys/{keyId} {
+      allow get: if isSignedIn() && isValidId(keyId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerified()
+        && isValidId(keyId)
+        && keyId.size() <= 64
+        && isValidApiKey(incoming())
+        && incoming().id == keyId
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().requestCount == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if isVerified()
+        && isValidId(keyId)
+        && isValidApiKey(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().keyPrefix == existing().keyPrefix
+        && incoming().keyMasked == existing().keyMasked
+        && incoming().keyValue == existing().keyValue
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Rename active key
+          (existing().status == 'active' && incoming().status == 'active' && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt'])) ||
+          // Action 2: Permanently revoke active key (terminal state)
+          (existing().status == 'active' && incoming().status == 'revoked' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+          // Action 3: Increment request telemetry for active key
+          (existing().status == 'active' && incoming().status == 'active' && incoming().requestCount >= existing().requestCount && incoming().diff(existing()).affectedKeys().hasOnly(['requestCount', 'lastUsedAt', 'updatedAt']))
+        );
+      allow delete: if isVerified() && isValidId(keyId) && existing().ownerId == request.auth.uid;
+    }
+
+    // /requestLogs/{logId} - Immutable API telemetry log entries
+    match /requestLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerified()
+        && isValidId(logId)
+        && logId.size() <= 64
+        && isValidRequestLog(incoming())
+        && incoming().id == logId
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/apiKeys/$(incoming().keyId))
+        && get(/databases/$(database)/documents/apiKeys/$(incoming().keyId)).data.ownerId == request.auth.uid;
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(logId) && existing().ownerId == request.auth.uid;
+    }
+  }
+}
